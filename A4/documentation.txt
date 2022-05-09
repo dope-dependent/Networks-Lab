@@ -1,0 +1,165 @@
+We input the string "abcdefghijklmnopqrstuvwxyz", making it 26 characters in total
+
+ 
+
+Probability (p)                    Average number of transmissions to send each character
+0.05                                                1.1538
+0.10                                                1.1923
+0.15                                                1.2692
+0.20                                                 1.7692
+0.25                                                1.6153
+0.30                                                2.0000
+0.35                                                2.4230
+0.40                                                2.2692
+0.45                                                3.8346
+0.50                                                4.0769
+
+ 
+
+ 
+
+MAKE INSTRUCTIONS
+Make library first (very important) using
+    make -f makefile.lib
+
+ 
+
+Make application next using
+    make -f makefile.app
+
+ 
+
+
+Description of rsocket.h
+
+ 
+
+MACROS
+* SOCK_MRP        13
+    Protocol type, socket will only be created if type == SOCK_MRP
+* MAX_SIZE        100
+    Maximum size of the buffer
+* RECV_WAIT_TIME  2
+    If the table has not been filled, wait for two seconds
+* TABLE_SIZE      50
+    Maximum size of both the tables
+* TIMEOUT         2 
+    Parameter T as defined in the assignment
+* PROBABILITY     0.50
+    Parameter p (dropout probability) as defined in the assignment
+    Can be changed as per user requirements
+
+ 
+
+
+DATA STRUCTURES
+* struct unack_msg: Data structure for unacknowledged message
+    * char buff []
+        Buffer space for the unacknowledged message, where the actual message is stored
+    * struct sockaddr addr
+        Destination address of the message 
+    * int occupied
+        Check whether this is occupied (should not be replaced) or unoccupied (can put a new message here)
+        If occupied == 1, then occupied
+        If occupied == -1, then not occupied
+    * int16_t id
+        Random message id
+    * time_t time
+        The time at which message is initialized
+    * int sockfd
+        Socket descriptor to which message is being sent
+    
+* struct unread_msg: Data structure for unread message (received message table)
+    * char buff []
+        Buffer space for the message
+    * struct sockaddr addr
+        Source address of the message (required in the recvfrom calls)
+    * socklen_t addrlen
+        Length of the source address (required in the recvfrom calls)
+    * int ret
+        Return value of the recvfrom call (no of bytes received)
+    * struct unread_msg * next
+        Pointer to the next message in unread_table (which is implemented as a linked list)
+    
+* struct unread_table: Data structure for unread table, an unread table is a linked list of unread messages
+    * struct unread_msg * head
+        First message
+    * struct unread_msg * tail
+        Last message
+
+ 
+
+
+GLOBAL VARIABLES
+* pthread_mutex_t lock
+    Mutex lock for shared sections
+* pthread_t r
+    Thread R
+* pthread_t s
+    Thread S
+* unread_table unread_pointers
+    The collection of all unread messages in the received message table
+    
+* unack_msg * unack_table
+    Unacknowledged message table pointer
+    Table will be allocated using shared memory
+
+ 
+
+* int _sockfd
+    Currently selected socket file descriptor
+
+ 
+
+Description of rsocket.c
+
+ 
+
+FUNCTIONS
+* int dropMessage (float p) 
+    Returns 1 if a message is dropped and 0 if a message is not dropped
+
+ 
+
+* int r_socket (int domain, int type, int protocol)
+    Creates a MRP socket (a wrapped UDP socket)
+    Initializes the unacknowledged-message-table (unack_table) and the received-message-table(unread_pointers)
+    Creates the two threads r and s and assigns runner functions R and S respectively to them
+    Returns the socket field descriptor
+
+ 
+
+* int r_bind (int sockfd, const struct sockaddr * addr, socklen_t addrlen)
+    Executes a simple bind call, returns the output of the bind call
+ 
+* int r_sendto (int sockfd, const void *buf, size_t len, int flags, const struct sockaddr *dest_addr, socklen_t addrlen)
+    Executes the send call to send len bytes of data from buf to dest_addr
+    Finds an empty space in the unacknowledged message table, and makes it occupied (using mutex locks)
+    Copy the message to the buff attribute of the message table, and copy all other attributes
+    like destination address, socket descriptor and add a random id to it. 
+    Execute a normal sendto call and return its return value (the number of bytes sent)
+
+ 
+
+* int r_recvfrom (int sockfd, void *buf, size_t len, int flags, struct sockaddr *src_addr, socklen_t *addrlen)
+    To receive a message
+    Checks if there is something in the received-message-table (unread_pointers) and copy it to buf and
+    set the return value to be the number of bytes received (stored in the ret attribute)
+    Otherwise, waits for RECV_WAIT_TIME
+
+ 
+
+* int r_close (int fd) 
+    Close the socket described by field descriptor fd and free the tables if required and cancel/close threads
+
+ 
+
+* void* R (void* arg)
+    Runner function for thread r. This thread receives all the messages received on this socket and stores it in the unread_msg linked list data structure to be read by the application. It is also responsible for sending the ACK messages upon successful reception.
+
+
+* void* S (void* arg)
+    Runner function for thread s. This thread is responsible for the retransmission of un-ACKed messages upon timeout.
+
+
+
